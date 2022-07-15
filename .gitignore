@@ -1,5 +1,6 @@
 # My ignores
 reference_vids/
+yolov5s.pt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
