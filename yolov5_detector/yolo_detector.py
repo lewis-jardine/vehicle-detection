@@ -7,7 +7,7 @@ from time import time
 
 # construct arg parse
 ap = argparse.ArgumentParser()
-ap.add_argument('-i', '--input', type=str, required=True, help="path to avi input video file")
+ap.add_argument('-i', '--input', type=str, required=True, help="path to input video file")
 ap.add_argument('-o', '--output', type=str, default="out_file.avi", help="path to .avi ouput video file to be created")
 ap.add_argument('-c', '--confidence', type=float, default=0.2, help="objects will not be marked if confidence is below this threshold")
 args = vars(ap.parse_args())
@@ -76,7 +76,7 @@ class ObjectDetect:
         x_shape = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
         y_shape = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
         four_cc = cv2.VideoWriter_fourcc(*"MJPG")
-        out = cv2.VideoWriter(self.out_file, four_cc, 20, (x_shape, y_shape))
+        out = cv2.VideoWriter(self.out_file, four_cc, 30, (x_shape, y_shape))
 
         while True:
             start_time = time()
