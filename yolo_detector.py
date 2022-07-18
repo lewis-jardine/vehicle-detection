@@ -7,8 +7,8 @@ from time import time
 
 # construct arg parse
 ap = argparse.ArgumentParser()
-ap.add_argument('-i', '--input', type=str, required=True, help="path to input video file")
-ap.add_argument('-o', '--output', type=str, default="out_file.webm", help="path to ouput video file to be created")
+ap.add_argument('-i', '--input', type=str, required=True, help="path to avi input video file")
+ap.add_argument('-o', '--output', type=str, default="out_file.avi", help="path to .avi ouput video file to be created")
 ap.add_argument('-c', '--confidence', type=float, default=0.2, help="objects will not be marked if confidence is below this threshold")
 args = vars(ap.parse_args())
 
