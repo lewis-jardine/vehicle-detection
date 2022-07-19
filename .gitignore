@@ -1,6 +1,7 @@
 # My ignores
 reference_vids/
 yolov5s.pt
+.vscode/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
