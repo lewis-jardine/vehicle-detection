@@ -1,4 +1,5 @@
 import argparse
+from csv import writer
 
 import os
 # limit the number of cpus used by high performance libraries
@@ -52,7 +53,7 @@ def run(
         max_det=1000,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         show_vid=True,  # show results
-        save_txt=True,  # save results to *.txt
+        save_csv=True,  # save results to *.txt
         classes=None,  # filter by class: --class 0, or --class 0 2 3
         agnostic_nms=False,  # class-agnostic NMS
         augment=False,  # augmented inference
@@ -103,9 +104,12 @@ def run(
         )
     outputs = [None] * nr_sources
 
-    # Create text out file if required
-    if save_txt:
-        out_txt = open(save_txt + '.txt', 'w').close()
+    # New csv to store results in for analytics
+    if save_csv:
+        header = ['frame', 'id', 'box_left_x', 'box_top_y', 'box_width', 'box_height']
+        with open(save_csv, 'w') as f:
+            write_obj = writer(f)
+            write_obj.writerow(header)
 
     # Run tracking
     model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
@@ -171,16 +175,18 @@ def run(
                         id = output[4]
                         cls = output[5]
 
-                        if save_txt:
-                            # to MOT format
-                            bbox_left = output[0]
-                            bbox_top = output[1]
-                            bbox_w = output[2] - output[0]
-                            bbox_h = output[3] - output[1]
-                            # Write MOT compliant results to file
-                            with open(out_txt, 'a') as f:
-                                f.write(('%g ' * 10 + '\n') % (frame_idx + 1, id, bbox_left,  # MOT format
-                                                               bbox_top, bbox_w, bbox_h, -1, -1, -1, i))
+                        # box dimensions
+                        bbox_left = output[0]
+                        bbox_top = output[1]
+                        bbox_w = output[2] - output[0]
+                        bbox_h = output[3] - output[1]
+
+                        # Write MOT compliant results to file
+                        if save_csv:
+                            data = [frame_idx + 1, id, bbox_left, bbox_top, bbox_w, bbox_h] # MOT format
+                            with open(save_csv, 'a') as f:
+                                write_obj = writer(f)
+                                write_obj.writerow(data)
 
                         if out_path or show_vid:  # Add bbox to image
                             c = int(cls)  # integer class
@@ -232,7 +238,7 @@ def parse_opt():
     parser.add_argument('--max-det', type=int, default=1000, help='maximum detections per image')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--show-vid', action='store_true', help='display tracking video results')
-    parser.add_argument('--save-txt', help='file path to save txt results to')
+    parser.add_argument('--save-csv', help='file path to save csv results to')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
