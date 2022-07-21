@@ -1,4 +1,5 @@
 # My ignores
+yolov5_strongsort/out_text.csv
 reference_vids/
 yolov5s.pt
 .vscode/
