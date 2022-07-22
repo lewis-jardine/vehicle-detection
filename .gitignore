@@ -1,5 +1,6 @@
 # My ignores
 yolov5_strongsort/out_text.csv
+yolov5_strongsort/count_objs.csv
 reference_vids/
 yolov5s.pt
 .vscode/
