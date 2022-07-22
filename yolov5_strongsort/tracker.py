@@ -2,6 +2,7 @@ import argparse
 from csv import writer
 
 import os
+
 # limit the number of cpus used by high performance libraries
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -54,6 +55,7 @@ def run(
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         show_vid=True,  # show results
         save_csv=True,  # save results to *.txt
+        count_obj=None, # enable obj counting between 2 y coords
         classes=None,  # filter by class: --class 0, or --class 0 2 3
         agnostic_nms=False,  # class-agnostic NMS
         augment=False,  # augmented inference
@@ -110,6 +112,14 @@ def run(
         with open(save_csv, 'w') as f:
             write_obj = writer(f)
             write_obj.writerow(header)
+
+    # New csv to store counts
+    if count_obj:
+        y1, y2 = count_obj # Get desired start and stop y coords
+        header = ['class', 'count']
+        with open('count_objs', 'w') as f:
+            write_counts = writer(f)
+            write_counts.writerow(header)
 
     # Run tracking
     model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
@@ -205,7 +215,15 @@ def run(
             im0 = annotator.result()
             if show_vid:
                 cv2.imshow(str(p), im0)
-                cv2.waitKey(1)  # 1 millisecond
+                if count_obj: # Visualise count stop start lines
+                    cv2.line(im0, (0, y1), (im0.shape[1], y1), (0, 255, 0), 2) # Start count
+                    cv2.line(im0, (0, y2), (im0.shape[1], y2), (0, 255, 0), 2) # Stop count
+                
+                # quit if q is pressed
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    print("quitting program...")
+                    return
 
             # Save results (image with detections)
             if out_path:
@@ -239,6 +257,7 @@ def parse_opt():
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--show-vid', action='store_true', help='display tracking video results')
     parser.add_argument('--save-csv', help='file path to save csv results to')
+    parser.add_argument('--count-obj', type=tuple, help='count obj classes which pass through two y coords')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
