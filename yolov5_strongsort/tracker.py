@@ -1,5 +1,5 @@
 import argparse
-from csv import writer
+from csv import writer, DictWriter
 
 import os
 
@@ -115,11 +115,10 @@ def run(
 
     # New csv to store counts
     if count_obj:
-        y1, y2 = count_obj # Get desired start and stop y coords
-        header = ['class', 'count']
-        with open('count_objs', 'w') as f:
-            write_counts = writer(f)
-            write_counts.writerow(header)
+        y1 = count_obj[0] # Get desired start and stop y coords
+        y2 = count_obj[1]
+        count = {} # Key is class, value is count
+        counted = [] # IDs already counted
 
     # Run tracking
     model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
@@ -205,6 +204,15 @@ def run(
                                 (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
                             annotator.box_label(bboxes, label, color=colors(c, True))
 
+                        # Count unique tracked objects between two y coords
+                        if count_obj:
+                            if y1 < bbox_top < y2 and id not in counted: # Between stop and start and not already counted
+                                if names[c] in count:
+                                    count[names[c]] += 1
+                                else:
+                                    count[names[c]] = 1
+                                counted.append(id)
+
                 LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), StrongSORT:({t5 - t4:.3f}s)')
 
             else:
@@ -214,10 +222,10 @@ def run(
             # Stream results
             im0 = annotator.result()
             if show_vid:
-                cv2.imshow(str(p), im0)
                 if count_obj: # Visualise count stop start lines
                     cv2.line(im0, (0, y1), (im0.shape[1], y1), (0, 255, 0), 2) # Start count
                     cv2.line(im0, (0, y2), (im0.shape[1], y2), (0, 255, 0), 2) # Stop count
+                cv2.imshow(str(p), im0)
                 
                 # quit if q is pressed
                 key = cv2.waitKey(1) & 0xFF
@@ -239,6 +247,14 @@ def run(
 
             prev_frames[i] = curr_frames[i]
 
+    if count_obj:
+        header = ['class', 'count']
+        with open('count_objs.csv', 'w') as f:
+            count_obj = writer(f)
+            count_obj.writerow(header)
+            for key in count.keys():
+                count_obj.writerow("%s, %s\n" % (key, count[key]))
+
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
     LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS, %.1fms strong sort update per image at shape {(1, 3, *imgsz)}' % t)
@@ -257,7 +273,7 @@ def parse_opt():
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--show-vid', action='store_true', help='display tracking video results')
     parser.add_argument('--save-csv', help='file path to save csv results to')
-    parser.add_argument('--count-obj', type=tuple, help='count obj classes which pass through two y coords')
+    parser.add_argument('--count-obj', nargs='+', type=int, help='count obj classes which pass through two y coords')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
