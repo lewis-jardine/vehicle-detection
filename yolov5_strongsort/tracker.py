@@ -252,8 +252,8 @@ def run(
         with open('count_objs.csv', 'w') as f:
             count_obj = writer(f)
             count_obj.writerow(header)
-            for key in count.keys():
-                count_obj.writerow("%s, %s\n" % (key, count[key]))
+            for key, value in count.items():
+                count_obj.writerow([key, value])
 
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
@@ -264,7 +264,7 @@ def run(
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--in_path', type=str, default='../reference_vids/1080p_traffic_30s.mp4', help='input video file path')
+    parser.add_argument('-i', '--in_path', type=str, default='../reference_vids/1080p_traffic_2s.mp4', help='input video file path')
     parser.add_argument('-o', '--out_path', type=str, default='../reference_vids/tracker_out.mp4', help='.mp4 output video file path')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('-c', '--conf-thres', type=float, default=0.6, help='confidence threshold')
