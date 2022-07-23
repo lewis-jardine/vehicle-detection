@@ -54,7 +54,7 @@ def run(
         max_det=1000,  # maximum detections per image
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         show_vid=True,  # show results
-        save_csv=True,  # save results to *.txt
+        save_stats=True,  # save results to *.txt
         count_obj=None, # enable obj counting between 2 y coords
         classes=None,  # filter by class: --class 0, or --class 0 2 3
         agnostic_nms=False,  # class-agnostic NMS
@@ -102,9 +102,9 @@ def run(
     outputs = [None]
 
     # New csv to store results in for analytics
-    if save_csv:
+    if save_stats:
         header = ['frame', 'id', 'box_left_x', 'box_top_y', 'box_width', 'box_height']
-        with open(save_csv, 'w') as f:
+        with open(save_stats, 'w') as f:
             write_obj = writer(f)
             write_obj.writerow(header)
 
@@ -114,6 +114,9 @@ def run(
         y2 = count_obj[1]
         count = {} # Key is class, value is count
         counted = [] # IDs already counted
+    
+    # Stat data structure init
+    all_stats = {}
 
     # Run tracking
     model.warmup(imgsz=(1, 3, *imgsz))  # warmup
@@ -185,12 +188,13 @@ def run(
                     bbox_w = output[2] - output[0]
                     bbox_h = output[3] - output[1]
 
-                    # Write MOT compliant results to file
-                    if save_csv:
-                        data = [frame_idx + 1, id, bbox_left, bbox_top, bbox_w, bbox_h] # MOT format
-                        with open(save_csv, 'a') as f:
-                            write_obj = writer(f)
-                            write_obj.writerow(data)
+                    # Store stats for each detection as list, appended to list of every detection for that ID
+                    # This 2D array will be the value in dict for key of ID
+                    det_stats = [frame_idx + 1, bbox_left, bbox_top, bbox_w, bbox_h] # MOT format
+                    if id in all_stats:
+                        all_stats[id].append(det_stats)
+                    else:
+                        all_stats[id] = [det_stats]
 
                     if out_path or show_vid:  # Add bbox to image
                         c = int(cls)  # integer class
@@ -241,6 +245,7 @@ def run(
 
         prev_frames = curr_frames
 
+    # Save counts in csv
     if count_obj:
         header = ['class', 'count']
         with open('count_objs.csv', 'w') as f:
@@ -258,16 +263,16 @@ def run(
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--in_path', type=str, default='../reference_vids/1080p_traffic_2s.mp4', help='input video file path')
-    parser.add_argument('-o', '--out_path', type=str, default='../reference_vids/tracker_out.mp4', help='.mp4 output video file path')
+    parser.add_argument('-i', '--in-path', type=str, default='../reference_vids/1080p_traffic_2s.mp4', help='input video file path')
+    parser.add_argument('-o', '--out-path', type=str, default='../reference_vids/tracker_out.mp4', help='.mp4 output video file path')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('-c', '--conf-thres', type=float, default=0.6, help='confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='NMS IoU threshold')
     parser.add_argument('--max-det', type=int, default=1000, help='maximum detections per image')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--show-vid', action='store_true', help='display tracking video results')
-    parser.add_argument('--save-csv', help='file path to save csv results to')
-    parser.add_argument('--count-obj', nargs='+', type=int, help='count obj classes which pass through two y coords')
+    parser.add_argument('--save-stats', help='file path to save csv results to')
+    parser.add_argument('--count-obj', nargs='+', type=int, help='start and stop y coord for vehicle count and direction')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
