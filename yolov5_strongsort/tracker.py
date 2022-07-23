@@ -80,31 +80,26 @@ def run(
 
     # Dataloader
     dataset = LoadImages(in_path, img_size=imgsz, stride=stride, auto=pt)
-    nr_sources = 1
-    vid_path, vid_writer, txt_path = [None] * nr_sources, [None] * nr_sources, [None] * nr_sources
+    vid_path, vid_writer = [None], [None]
 
     # initialize StrongSORT
     cfg = get_config()
     cfg.merge_from_file(config_strongsort)
 
-    # Create as many strong sort instances as there are video sources
-    strongsort_list = []
-    for i in range(nr_sources):
-        strongsort_list.append(
-            StrongSORT(
-                strong_sort_weights,
-                device,
-                max_dist=cfg.STRONGSORT.MAX_DIST,
-                max_iou_distance=cfg.STRONGSORT.MAX_IOU_DISTANCE,
-                max_age=cfg.STRONGSORT.MAX_AGE,
-                n_init=cfg.STRONGSORT.N_INIT,
-                nn_budget=cfg.STRONGSORT.NN_BUDGET,
-                mc_lambda=cfg.STRONGSORT.MC_LAMBDA,
-                ema_alpha=cfg.STRONGSORT.EMA_ALPHA,
-
+    # Create strongsort object instance
+    strongsort_obj = StrongSORT(
+            strong_sort_weights,
+            device,
+            max_dist=cfg.STRONGSORT.MAX_DIST,
+            max_iou_distance=cfg.STRONGSORT.MAX_IOU_DISTANCE,
+            max_age=cfg.STRONGSORT.MAX_AGE,
+            n_init=cfg.STRONGSORT.N_INIT,
+            nn_budget=cfg.STRONGSORT.NN_BUDGET,
+            mc_lambda=cfg.STRONGSORT.MC_LAMBDA,
+            ema_alpha=cfg.STRONGSORT.EMA_ALPHA,
             )
-        )
-    outputs = [None] * nr_sources
+
+    outputs = [None]
 
     # New csv to store results in for analytics
     if save_csv:
@@ -121,9 +116,9 @@ def run(
         counted = [] # IDs already counted
 
     # Run tracking
-    model.warmup(imgsz=(1 if pt else nr_sources, 3, *imgsz))  # warmup
+    model.warmup(imgsz=(1, 3, *imgsz))  # warmup
     dt, seen = [0.0, 0.0, 0.0, 0.0], 0
-    curr_frames, prev_frames = [None] * nr_sources, [None] * nr_sources
+    curr_frames, prev_frames = [None], [None]
     for frame_idx, (path, im, im0s, vid_cap, s) in enumerate(dataset):
         t1 = time_sync()
         im = torch.from_numpy(im).to(device)
@@ -145,107 +140,106 @@ def run(
         dt[2] += time_sync() - t3
 
         # Process detections
-        for i, det in enumerate(pred):  # detections per image
-            seen += 1
-            p, im0, _ = path, im0s.copy(), getattr(dataset, 'frame', 0)
-            p = Path(p)  # to Path
-            curr_frames[i] = im0
+        dets = pred[0] # All dets contained within first val of pred tensor
+        seen += 1
+        p, im0, _ = path, im0s.copy(), getattr(dataset, 'frame', 0)
+        p = Path(p)  # to Path
+        curr_frames = im0
 
-            s += '%gx%g ' % im.shape[2:]  # print string
+        s += '%gx%g ' % im.shape[2:]  # print string
 
-            annotator = Annotator(im0, line_width=2, pil=not ascii)
-            if cfg.STRONGSORT.ECC:  # camera motion compensation
-                strongsort_list[i].tracker.camera_update(prev_frames[i], curr_frames[i])
+        annotator = Annotator(im0, line_width=2, pil=not ascii)
+        if cfg.STRONGSORT.ECC:  # camera motion compensation
+            strongsort_obj.tracker.camera_update(prev_frames, curr_frames)
 
-            if det is not None and len(det):
-                # Rescale boxes from img_size to im0 size
-                det[:, :4] = scale_coords(im.shape[2:], det[:, :4], im0.shape).round()
+        if dets is not None and len(dets):
+            # Rescale boxes from img_size to im0 size
+            dets[:, :4] = scale_coords(im.shape[2:], dets[:, :4], im0.shape).round()
 
-                # Print results
-                for c in det[:, -1].unique():
-                    n = (det[:, -1] == c).sum()  # detections per class
-                    s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
+            # Print results
+            for c in dets[:, -1].unique():
+                n = (dets[:, -1] == c).sum()  # detections per class
+                s += f"{n} {names[int(c)]}{'s' * (n > 1)}, "  # add to string
 
-                xywhs = xyxy2xywh(det[:, 0:4])
-                confs = det[:, 4]
-                clss = det[:, 5]
+            xywhs = xyxy2xywh(dets[:, 0:4])
+            confs = dets[:, 4]
+            clss = dets[:, 5]
 
-                # pass detections to strongsort
-                t4 = time_sync()
-                outputs[i] = strongsort_list[i].update(xywhs.cpu(), confs.cpu(), clss.cpu(), im0)
-                t5 = time_sync()
-                dt[3] += t5 - t4
+            # pass detections to strongsort
+            t4 = time_sync()
+            outputs = strongsort_obj.update(xywhs.cpu(), confs.cpu(), clss.cpu(), im0)
+            t5 = time_sync()
+            dt[3] += t5 - t4
 
-                # draw boxes for visualization
-                if len(outputs[i]) > 0:
-                    for j, (output, conf) in enumerate(zip(outputs[i], confs)):
-    
-                        bboxes = output[0:4]
-                        id = output[4]
-                        cls = output[5]
+            # draw boxes for visualization
+            if len(outputs) > 0:
+                for j, (output, conf) in enumerate(zip(outputs, confs)):
 
-                        # box dimensions
-                        bbox_left = output[0]
-                        bbox_top = output[1]
-                        bbox_w = output[2] - output[0]
-                        bbox_h = output[3] - output[1]
+                    bboxes = output[0:4]
+                    id = output[4]
+                    cls = output[5]
 
-                        # Write MOT compliant results to file
-                        if save_csv:
-                            data = [frame_idx + 1, id, bbox_left, bbox_top, bbox_w, bbox_h] # MOT format
-                            with open(save_csv, 'a') as f:
-                                write_obj = writer(f)
-                                write_obj.writerow(data)
+                    # box dimensions
+                    bbox_left = output[0]
+                    bbox_top = output[1]
+                    bbox_w = output[2] - output[0]
+                    bbox_h = output[3] - output[1]
 
-                        if out_path or show_vid:  # Add bbox to image
-                            c = int(cls)  # integer class
-                            id = int(id)  # integer id
-                            label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
-                                (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
-                            annotator.box_label(bboxes, label, color=colors(c, True))
+                    # Write MOT compliant results to file
+                    if save_csv:
+                        data = [frame_idx + 1, id, bbox_left, bbox_top, bbox_w, bbox_h] # MOT format
+                        with open(save_csv, 'a') as f:
+                            write_obj = writer(f)
+                            write_obj.writerow(data)
 
-                        # Count unique tracked objects between two y coords
-                        if count_obj:
-                            if y1 < bbox_top < y2 and id not in counted: # Between stop and start and not already counted
-                                if names[c] in count:
-                                    count[names[c]] += 1
-                                else:
-                                    count[names[c]] = 1
-                                counted.append(id)
+                    if out_path or show_vid:  # Add bbox to image
+                        c = int(cls)  # integer class
+                        id = int(id)  # integer id
+                        label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
+                            (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
+                        annotator.box_label(bboxes, label, color=colors(c, True))
 
-                LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), StrongSORT:({t5 - t4:.3f}s)')
+                    # Count unique tracked objects between two y coords
+                    if count_obj:
+                        if y1 < bbox_top < y2 and id not in counted: # Between stop and start and not already counted
+                            if names[c] in count:
+                                count[names[c]] += 1
+                            else:
+                                count[names[c]] = 1
+                            counted.append(id)
 
-            else:
-                strongsort_list[i].increment_ages()
-                LOGGER.info('No detections')
+            LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), StrongSORT:({t5 - t4:.3f}s)')
 
-            # Stream results
-            im0 = annotator.result()
-            if show_vid:
-                if count_obj: # Visualise count stop start lines
-                    cv2.line(im0, (0, y1), (im0.shape[1], y1), (0, 255, 0), 2) # Start count
-                    cv2.line(im0, (0, y2), (im0.shape[1], y2), (0, 255, 0), 2) # Stop count
-                cv2.imshow(str(p), im0)
-                
-                # quit if q is pressed
-                key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    print("quitting program...")
-                    return
+        else:
+            LOGGER.info('No detections')
 
-            # Save results (image with detections)
-            if out_path:
-                if vid_path[i] != out_path: # if new video
-                    vid_path[i] = out_path
-                    if isinstance(vid_writer[i], cv2.VideoWriter):
-                        vid_writer[i].release()  # release previous video writer
-                    fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                    w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                    h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                    vid_writer[i] = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-                vid_writer[i].write(im0)
+        # Stream results
+        im0 = annotator.result()
+        if show_vid:
+            if count_obj: # Visualise count stop start lines
+                cv2.line(im0, (0, y1), (im0.shape[1], y1), (0, 255, 0), 2) # Start count
+                cv2.line(im0, (0, y2), (im0.shape[1], y2), (0, 255, 0), 2) # Stop count
+            cv2.imshow(str(p), im0)
+            
+            # quit if q is pressed
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                print("quitting program...")
+                return
 
-            prev_frames[i] = curr_frames[i]
+        # Save results (image with detections)
+        if out_path:
+            if vid_path != out_path: # if new video
+                vid_path = out_path
+                if isinstance(vid_writer, cv2.VideoWriter):
+                    vid_writer.release()  # release previous video writer
+                fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                vid_writer = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+            vid_writer.write(im0)
+
+        prev_frames = curr_frames
 
     if count_obj:
         header = ['class', 'count']
