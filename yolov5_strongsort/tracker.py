@@ -1,5 +1,6 @@
 import argparse
 from csv import writer, DictWriter
+import math
 
 import os
 
@@ -116,7 +117,7 @@ def run(
         counted = [] # IDs already counted
     
     # Stat data structure init
-    all_stats = {}
+    raw_stats = {}
 
     # Run tracking
     model.warmup(imgsz=(1, 3, *imgsz))  # warmup
@@ -179,8 +180,8 @@ def run(
                 for j, (output, conf) in enumerate(zip(outputs, confs)):
 
                     bboxes = output[0:4]
-                    id = output[4]
-                    cls = output[5]
+                    id = int(output[4])
+                    cls = int(output[5])
 
                     # box dimensions
                     bbox_left = output[0]
@@ -190,26 +191,24 @@ def run(
 
                     # Store stats for each detection as list, appended to list of every detection for that ID
                     # This 2D array will be the value in dict for key of ID
-                    det_stats = [frame_idx + 1, bbox_left, bbox_top, bbox_w, bbox_h] # MOT format
-                    if id in all_stats:
-                        all_stats[id].append(det_stats)
+                    stats = [frame_idx + 1, conf, cls, bbox_left, bbox_top, bbox_w, bbox_h] # MOT format
+                    if id in raw_stats:
+                        raw_stats[id].append(stats)
                     else:
-                        all_stats[id] = [det_stats]
+                        raw_stats[id] = [stats]
 
                     if out_path or show_vid:  # Add bbox to image
-                        c = int(cls)  # integer class
-                        id = int(id)  # integer id
-                        label = None if hide_labels else (f'{id} {names[c]}' if hide_conf else \
-                            (f'{id} {conf:.2f}' if hide_class else f'{id} {names[c]} {conf:.2f}'))
-                        annotator.box_label(bboxes, label, color=colors(c, True))
+                        label = None if hide_labels else (f'{id} {names[cls]}' if hide_conf else \
+                            (f'{id} {conf:.2f}' if hide_class else f'{id} {names[cls]} {conf:.2f}'))
+                        annotator.box_label(bboxes, label, color=colors(cls, True))
 
                     # Count unique tracked objects between two y coords
                     if count_obj:
                         if y1 < bbox_top < y2 and id not in counted: # Between stop and start and not already counted
-                            if names[c] in count:
-                                count[names[c]] += 1
+                            if names[cls] in count:
+                                count[names[cls]] += 1
                             else:
-                                count[names[c]] = 1
+                                count[names[cls]] = 1
                             counted.append(id)
 
             LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), StrongSORT:({t5 - t4:.3f}s)')
@@ -245,6 +244,26 @@ def run(
 
         prev_frames = curr_frames
 
+    # Compilate raw stats for each id into nested dicts, with keys id and then stat
+    # These can be presented in graphs later
+    processed_stats = {}
+    for id, stats in raw_stats.items():
+        # Find greatest confidence across stats, that list will be most likely class
+        max_conf = 0
+        max_conf_idx = 0
+        for idx, stat in enumerate(stats):
+            if stat[1] > max_conf:
+                max_conf = stat[1]
+                max_conf_idx = idx
+        cls = stats[max_conf_idx][2]
+        # Calc heading from difference in first and last stats x, y coords
+        x1, y1 = stats[0][3], stats[0][4]
+        x2, y2 = stats[-1][3], stats[-1][4]
+        head = math.degrees(math.atan2(x2 - x1, y1 - y2))
+        # Find first and last frame idx, get time stamp in s from / with fps
+        t1, t2 = stats[0][0] / fps, stats[-1][0] / fps
+        processed_stats[id] = {'vehicle': names[cls], 'heading': head, 'first_seen': t1, 'last_seen': t2}
+
     # Save counts in csv
     if count_obj:
         header = ['class', 'count']
@@ -263,7 +282,7 @@ def run(
 
 def parse_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--in-path', type=str, default='../reference_vids/1080p_traffic_2s.mp4', help='input video file path')
+    parser.add_argument('-i', '--in-path', type=str, default='../reference_vids/720p_mwtraffic_2s.mp4', help='input video file path')
     parser.add_argument('-o', '--out-path', type=str, default='../reference_vids/tracker_out.mp4', help='.mp4 output video file path')
     parser.add_argument('--imgsz', '--img', '--img-size', nargs='+', type=int, default=[640], help='inference size h,w')
     parser.add_argument('-c', '--conf-thres', type=float, default=0.6, help='confidence threshold')
