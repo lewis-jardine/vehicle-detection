@@ -102,20 +102,6 @@ def run(
 
     outputs = [None]
 
-    # New csv to store results in for analytics
-    if save_stats:
-        header = ['frame', 'id', 'box_left_x', 'box_top_y', 'box_width', 'box_height']
-        with open(save_stats, 'w') as f:
-            write_obj = writer(f)
-            write_obj.writerow(header)
-
-    # New csv to store counts
-    if count_obj:
-        y1 = count_obj[0] # Get desired start and stop y coords
-        y2 = count_obj[1]
-        count = {} # Key is class, value is count
-        counted = [] # IDs already counted
-    
     # Stat data structure init
     raw_stats = {}
 
@@ -202,15 +188,6 @@ def run(
                             (f'{id} {conf:.2f}' if hide_class else f'{id} {names[cls]} {conf:.2f}'))
                         annotator.box_label(bboxes, label, color=colors(cls, True))
 
-                    # Count unique tracked objects between two y coords
-                    if count_obj:
-                        if y1 < bbox_top < y2 and id not in counted: # Between stop and start and not already counted
-                            if names[cls] in count:
-                                count[names[cls]] += 1
-                            else:
-                                count[names[cls]] = 1
-                            counted.append(id)
-
             LOGGER.info(f'{s}Done. YOLO:({t3 - t2:.3f}s), StrongSORT:({t5 - t4:.3f}s)')
 
         else:
@@ -247,6 +224,7 @@ def run(
     # Compilate raw stats for each id into nested dicts, with keys id and then stat
     # These can be presented in graphs later
     processed_stats = {}
+    count = {}
     for id, stats in raw_stats.items():
         # Find greatest confidence across stats, that list will be most likely class
         max_conf = 0
@@ -262,7 +240,26 @@ def run(
         head = math.degrees(math.atan2(x2 - x1, y1 - y2))
         # Find first and last frame idx, get time stamp in s from / with fps
         t1, t2 = stats[0][0] / fps, stats[-1][0] / fps
-        processed_stats[id] = {'vehicle': names[cls], 'heading': head, 'first_seen': t1, 'last_seen': t2}
+        processed_stats[id] = {'vehicle': names[cls], 'heading': int(head), 'first_seen': round(t1, 2), 'last_seen': round(t2, 2)}
+        # Store overall class count
+        if count_obj:
+            cls = processed_stats[id]['vehicle']
+            if cls in count:
+                count[cls] += 1
+            else:
+                count[cls] = 1
+
+    # Save stats in csv
+    if save_stats:
+        with open(save_stats, 'w') as f:
+            header = list(processed_stats[1].keys())
+            header.insert(0, 'id') # Insert into start of list so its the first header
+            write_obj = writer(f)
+            write_obj.writerow(header)
+            for id, stats in processed_stats.items():
+                row = list(stats.values())
+                row.insert(0, id)
+                write_obj.writerow(row)
 
     # Save counts in csv
     if count_obj:
@@ -291,7 +288,7 @@ def parse_opt():
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--show-vid', action='store_true', help='display tracking video results')
     parser.add_argument('--save-stats', help='file path to save csv results to')
-    parser.add_argument('--count-obj', nargs='+', type=int, help='start and stop y coord for vehicle count and direction')
+    parser.add_argument('--count-obj', action='store_true', help='save count of vehicles to csv')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
