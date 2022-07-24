@@ -56,7 +56,7 @@ def run(
         device='',  # cuda device, i.e. 0 or 0,1,2,3 or cpu
         show_vid=True,  # show results
         save_stats=True,  # save results to *.txt
-        count_obj=None, # enable obj counting between 2 y coords
+        save_count=None, # enable obj counting between 2 y coords
         classes=None,  # filter by class: --class 0, or --class 0 2 3
         agnostic_nms=False,  # class-agnostic NMS
         augment=False,  # augmented inference
@@ -196,9 +196,6 @@ def run(
         # Stream results
         im0 = annotator.result()
         if show_vid:
-            if count_obj: # Visualise count stop start lines
-                cv2.line(im0, (0, y1), (im0.shape[1], y1), (0, 255, 0), 2) # Start count
-                cv2.line(im0, (0, y2), (im0.shape[1], y2), (0, 255, 0), 2) # Stop count
             cv2.imshow(str(p), im0)
             
             # quit if q is pressed
@@ -242,7 +239,7 @@ def run(
         t1, t2 = stats[0][0] / fps, stats[-1][0] / fps
         processed_stats[id] = {'vehicle': names[cls], 'heading': int(head), 'first_seen': round(t1, 2), 'last_seen': round(t2, 2)}
         # Store overall class count
-        if count_obj:
+        if save_count:
             cls = processed_stats[id]['vehicle']
             if cls in count:
                 count[cls] += 1
@@ -262,13 +259,13 @@ def run(
                 write_obj.writerow(row)
 
     # Save counts in csv
-    if count_obj:
+    if save_count:
         header = ['class', 'count']
-        with open('count_objs.csv', 'w') as f:
-            count_obj = writer(f)
-            count_obj.writerow(header)
+        with open(save_count, 'w') as f:
+            save_count = writer(f)
+            save_count.writerow(header)
             for key, value in count.items():
-                count_obj.writerow([key, value])
+                save_count.writerow([key, value])
 
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
@@ -288,7 +285,7 @@ def parse_opt():
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--show-vid', action='store_true', help='display tracking video results')
     parser.add_argument('--save-stats', help='file path to save csv results to')
-    parser.add_argument('--count-obj', action='store_true', help='save count of vehicles to csv')
+    parser.add_argument('--save-count', help='file path to save count objs csv to')
     # class 0 is person, 1 is bycicle, 2 is car... 79 is oven
     parser.add_argument('--classes', nargs='+', type=int, help='filter by class: --classes 0, or --classes 0 2 3')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
